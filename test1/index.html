@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>志賀町トイレ施設マップ</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        #map { width: 100%; height: 100vh; }
+        .info {
+            padding: 12px 16px;
+            background: white;
+            border-radius: 5px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        .info h3 { margin: 0 0 8px 0; font-size: 16px; color: #333; }
+        .info-row { display: flex; justify-content: space-between; margin: 4px 0; }
+        .info-label { font-weight: bold; color: #666; min-width: 100px; }
+        .info-value { color: #333; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 12px; margin: 2px 2px 2px 0; }
+        .badge-yes { background: #90EE90; color: #333; }
+        .badge-no { background: #FFB6C6; color: #333; }
+        .legend {
+            background: white;
+            padding: 12px;
+            border-radius: 5px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+            font-size: 13px;
+        }
+        .legend-item { margin: 6px 0; }
+        .legend-marker { display: inline-block; width: 18px; height: 24px; margin-right: 8px; vertical-align: middle; }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+
+    <script>
+        // マップ初期化
+        const map = L.map('map').setView([37.08, 136.75], 12);
+        
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors',
+            maxZoom: 19
+        }).addTo(map);
+
+        // 施設データ
+        const facilities = [
+            { name: "道の駅とぎ海街道", lat: 37.140558, lng: 136.725355, male: 4, female: 4, barrier: 2, wheelchair: true, baby: false, ostomate: true },
+            { name: "高浜バスターミナル", lat: 37.004365, lng: 136.775708, male: 5, female: 2, barrier: 1, wheelchair: true, baby: false, ostomate: false },
+            { name: "せせらぎ自然公園", lat: 37.077178, lng: 136.774429, male: 3, female: 2, barrier: 1, wheelchair: true, baby: false, ostomate: false },
+            { name: "柴木総合公園", lat: 37.009984, lng: 136.776886, male: 3, female: 1, barrier: 1, wheelchair: true, baby: true, ostomate: false },
+            { name: "みらいとうぶ公園", lat: 37.002465, lng: 136.78449, male: 3, female: 2, barrier: 1, wheelchair: true, baby: true, ostomate: true },
+            { name: "志賀ロードパーク", lat: 37.031327, lng: 136.780948, male: 3, female: 2, barrier: 1, wheelchair: true, baby: false, ostomate: false },
+            { name: "巌門クリフパーク（牛下）", lat: 37.099246, lng: 136.730677, male: 3, female: 2, barrier: 2, wheelchair: true, baby: false, ostomate: false },
+            { name: "巌門クリフパーク（巌門）", lat: 37.095368, lng: 136.728062, male: 5, female: 4, barrier: 1, wheelchair: true, baby: false, ostomate: false },
+            { name: "笹波美知の駅", lat: 37.217721, lng: 136.696567, male: 2, female: 2, barrier: 0, wheelchair: false, baby: false, ostomate: false },
+            { name: "米町休憩所", lat: 37.058105, lng: 136.778501, male: 4, female: 2, barrier: 0, wheelchair: false, baby: false, ostomate: false },
+            { name: "三明休憩所", lat: 37.090173, lng: 136.764902, male: 4, female: 2, barrier: 0, wheelchair: false, baby: false, ostomate: false },
+            { name: "甘田農村公園", lat: 36.968727, lng: 136.77375, male: 0, female: 0, barrier: 0, wheelchair: false, baby: false, ostomate: false },
+            { name: "代田農村公園", lat: 37.055324, lng: 136.818767, male: 0, female: 0, barrier: 0, wheelchair: false, baby: false, ostomate: false },
+            { name: "徳田農村公園", lat: 37.051313, lng: 136.832427, male: 0, female: 0, barrier: 0, wheelchair: false, baby: false, ostomate: false },
+            { name: "風戸農村公園", lat: 37.14137, lng: 136.692811, male: 0, female: 0, barrier: 0, wheelchair: false, baby: false, ostomate: false },
+            { name: "西浦農村公園", lat: 37.181566, lng: 136.680602, male: 2, female: 1, barrier: 0, wheelchair: false, baby: false, ostomate: false },
+            { name: "滝ノ澗公園", lat: 37.141328, lng: 136.685855, male: 1, female: 0, barrier: 0, wheelchair: false, baby: false, ostomate: false },
+            { name: "増穂浦林間広場管理棟", lat: 37.141892, lng: 136.723356, male: 2, female: 2, barrier: 0, wheelchair: false, baby: false, ostomate: false },
+            { name: "荒木ケ丘山村広場", lat: 37.134798, lng: 136.731268, male: 4, female: 3, barrier: 0, wheelchair: false, baby: false, ostomate: false },
+            { name: "志賀町テニスコート", lat: 37.018146, lng: 136.768038, male: 3, female: 2, barrier: 1, wheelchair: true, baby: false, ostomate: false },
+            { name: "志賀町陸上競技場", lat: 37.023521, lng: 136.762693, male: 6, female: 4, barrier: 1, wheelchair: true, baby: true, ostomate: true },
+            { name: "ニュースポーツの丘", lat: 37.025476, lng: 136.761076, male: 2, female: 1, barrier: 0, wheelchair: false, baby: false, ostomate: false },
+            { name: "福浦みなと会館", lat: 37.081454, lng: 136.723837, male: 4, female: 3, barrier: 0, wheelchair: false, baby: false, ostomate: false }
+        ];
+
+        // マーカーの作成
+        facilities.forEach(facility => {
+            const hasFeature = facility.barrier > 0 || facility.wheelchair || facility.baby || facility.ostomate;
+            const iconColor = hasFeature ? '#2E86AB' : '#A23B72';
+            
+            const customIcon = L.divIcon({
+                className: 'custom-icon',
+                html: `<div style="background-color: ${iconColor}; width: 30px; height: 30px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 14px;">🚻</div>`,
+                iconSize: [36, 36],
+                iconAnchor: [18, 18],
+                popupAnchor: [0, -18]
+            });
+
+            const popupContent = `
+                <div class="info">
+                    <h3>${facility.name}</h3>
+                    <div class="info-row">
+                        <span class="info-label">男性:</span>
+                        <span class="info-value">${facility.male}個</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">女性:</span>
+                        <span class="info-value">${facility.female}個</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">バリアフリー:</span>
+                        <span class="info-value">${facility.barrier}個</span>
+                    </div>
+                    <div style="margin-top: 8px;">
+                        ${facility.wheelchair ? '<span class="badge badge-yes">♿車椅子</span>' : ''}
+                        ${facility.baby ? '<span class="badge badge-yes">👶乳幼児</span>' : ''}
+                        ${facility.ostomate ? '<span class="badge badge-yes">🔧オストメイト</span>' : ''}
+                    </div>
+                </div>
+            `;
+
+            L.marker([facility.lat, facility.lng], { icon: customIcon })
+                .bindPopup(popupContent)
+                .addTo(map);
+        });
+
+        // レジェンド
+        const legend = L.control({ position: 'bottomright' });
+        legend.onAdd = function() {
+            const div = L.DomUtil.create('div', 'legend');
+            div.innerHTML = `
+                <div style="margin-bottom: 8px; font-weight: bold;">凡例</div>
+                <div class="legend-item">
+                    <div class="legend-marker" style="background: #2E86AB; border-radius: 50%; border: 2px solid white;"></div>
+                    特別設備あり
+                </div>
+                <div class="legend-item">
+                    <div class="legend-marker" style="background: #A23B72; border-radius: 50%; border: 2px solid white;"></div>
+                    通常施設
+                </div>
+            `;
+            return div;
+        };
+        legend.addTo(map);
+    </script>
+</body>
+</html>
