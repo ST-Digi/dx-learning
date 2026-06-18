@@ -3,62 +3,240 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Leaflet入門マップ</title>
-    <!-- LeafletのCSSを読み込み -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <title>志賀町 人口データ可視化ダッシュボード</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        body { margin: 0; padding: 0; }
-        #map { width: 100vw; height: 100vh; }
+        body {
+            font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', Meiryo, sans-serif;
+            background-color: #f4f6f9;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        header {
+            text-align: center;
+            margin-bottom: 30px;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: #fff;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        header h1 {
+            margin: 0 0 10px 0;
+            font-size: 24px;
+        }
+        header p {
+            margin: 0;
+            font-size: 14px;
+            opacity: 0.9;
+        }
+        .card {
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            padding: 20px;
+            margin-bottom: 30px;
+        }
+        .card h2 {
+            margin-top: 0;
+            font-size: 18px;
+            color: #2a5298;
+            border-left: 4px solid #2a5298;
+            padding-left: 10px;
+            margin-bottom: 20px;
+        }
+        .chart-container {
+            position: relative;
+            height: 400px;
+            width: 100%;
+        }
+        .loading {
+            text-align: center;
+            padding: 50px;
+            font-size: 18px;
+            color: #666;
+        }
     </style>
 </head>
 <body>
-    <div id="map"></div>
 
-    <!-- LeafletのJSを読み込み -->
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script>
-        // 1. 地図の初期化
-        var map = L.map('map').setView([37.004365, 136.775708], 11);
+<div class="container">
+    <header>
+        <h1>志賀町 人口データ可視化ダッシュボード</h1>
+        <p>Googleスプレッドシートからデータを自動取得してリアルタイムに描画します</p>
+    </header>
 
-        // 2. 背景地図（OpenStreetMap）の追加
-        var osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-        }).addTo(map);
+    <div id="loading" class="loading">データを読み込み中...</div>
 
-        // 3. マーカーとポップアップの作成（後でレイヤにまとめるため変数に入れる）
-        var normalMarker = L.marker([37.004365, 136.775708])
-            .bindPopup('<b>高浜バスターミナル</b><br>志賀町の中心地付近です。');
+    <div id="dashboard" style="display: none;">
+        <div class="card">
+            <h2>① 男女別人口推移（前月末日現在）</h2>
+            <div class="chart-container">
+                <canvas id="populationChart"></canvas>
+            </div>
+        </div>
 
-        // 4. カスタムアイコンを使ったマーカー
-        var redIcon = L.icon({
-            iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
-            shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
-            iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34]
+        <div class="card">
+            <h2>② 人口増減要因の推移（町全体の出生・死亡・転入・転出）</h2>
+            <div class="chart-container">
+                <canvas id="dynamicsChart"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // 対象のGoogleスプレッドシートCSVエクスポートURL
+    const spreadsheetId = '1GvJulWQ__7_FA2FN_-29T0nKynzoExMKx7qnSRlvpDo';
+    const csvUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=csv`;
+
+    // CSVをパースしてオブジェクトの配列にする簡単な関数
+    function parseCSV(text) {
+        const lines = text.split('\n').map(line => line.trim()).filter(line => line);
+        const headers = lines[0].split(',');
+        
+        return lines.slice(1).map(line => {
+            const values = line.split(',');
+            const obj = {};
+            headers.forEach((header, index) => {
+                const val = values[index];
+                // 数値に変換できるものは変換する
+                obj[header] = isNaN(val) || val === '' ? val : Number(val);
+            });
+            return obj;
         });
-        var customMarker = L.marker([37.140558, 136.725355], {icon: redIcon})
-            .bindPopup('道の駅とぎ海街道（カスタムアイコン）');
+    }
 
-        // 5. ライン（線）を引く
-        var latlngs = [
-            [37.004365, 136.775708],
-            [37.140558, 136.725355]
-        ];
-        var routeLine = L.polyline(latlngs, {color: 'red', weight: 4, opacity: 0.7});
+    // データの取得とグラフの描画処理
+    async function initDashboard() {
+        try {
+            const response = await fetch(csvUrl);
+            const csvText = await response.text();
+            const rawData = parseCSV(csvText);
 
-        // 6. 複数の要素を「レイヤグループ」にまとめる
-        var myFeatures = L.layerGroup([normalMarker, customMarker, routeLine]).addTo(map);
+            // データのソート（年月順、性別順）
+            rawData.sort((a, b) => a['年月'] - b['年月']);
 
-        // 7. レイヤコントロール（右上の切り替えスイッチ）を追加
-        var baseMaps = {
-            "基本マップ (OSM)": osm
-        };
-        var overlayMaps = {
-            "表示アイテム": myFeatures
-        };
-        L.control.layers(baseMaps, overlayMaps).addTo(map);
+            // 重複のない年月リスト（X軸のラベル）を取得
+            const months = [...new Set(rawData.map(d => String(d['年月'])))];
 
-        // 初期状態でポップアップを開く
-        normalMarker.openPopup();
-    </script>
+            // --- データ加工 ---
+            // 1. 男女別の人口
+            const malePop = months.map(m => {
+                const row = rawData.find(d => String(d['年月']) === m && d['性別'] === '男');
+                return row ? row['前月末日現在'] : null;
+            });
+            const femalePop = months.map(m => {
+                const row = rawData.find(d => String(d['年月']) === m && d['性別'] === '女');
+                return row ? row['前月末日現在'] : null;
+            });
+
+            // 2. 町全体の増減要因（男女の合計値）
+            const births = months.map(m => {
+                return rawData.filter(d => String(d['年月']) === m).reduce((sum, d) => sum + (d['出生'] || 0), 0);
+            });
+            const deaths = months.map(m => {
+                return rawData.filter(d => String(d['年月']) === m).reduce((sum, d) => sum + (d['死亡'] || 0), 0) * -1; // 下側に伸ばすためマイナス
+            });
+            const ins = months.map(m => {
+                return rawData.filter(d => String(d['年月']) === m).reduce((sum, d) => sum + (d['転入等'] || 0), 0);
+            });
+            const outs = months.map(m => {
+                return rawData.filter(d => String(d['年月']) === m).reduce((sum, d) => sum + (d['転出等'] || 0), 0) * -1; // 下側に伸ばすためマイナス
+            });
+
+            // ローディング表示を隠してダッシュボードを表示
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('dashboard').style.display = 'block';
+
+            // --- グラフ1: 男女別人口推移（折れ線） ---
+            const ctx1 = document.getElementById('populationChart').getContext('2d');
+            new Chart(ctx1, {
+                type: 'line',
+                data: {
+                    labels: months,
+                    datasets: [
+                        {
+                            label: '男性 人口',
+                            data: malePop,
+                            borderColor: '#36a2eb',
+                            backgroundColor: 'rgba(54, 162, 235, 0.05)',
+                            borderWidth: 2,
+                            fill: true,
+                            tension: 0.1,
+                            pointRadius: 2
+                        },
+                        {
+                            label: '女性 人口',
+                            data: femalePop,
+                            borderColor: '#ff6384',
+                            backgroundColor: 'rgba(255, 99, 132, 0.05)',
+                            borderWidth: 2,
+                            fill: true,
+                            tension: 0.1,
+                            pointRadius: 2
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: { beginAtZero: false, title: { display: true, text: '人口（人）' } },
+                        x: { title: { display: true, text: '年月' } }
+                    }
+                }
+            });
+
+            // --- グラフ2: 人口動態分析（積み上げ棒グラフ） ---
+            const ctx2 = document.getElementById('dynamicsChart').getContext('2d');
+            new Chart(ctx2, {
+                type: 'bar',
+                data: {
+                    labels: months,
+                    datasets: [
+                        { label: '出生 (+)', data: births, backgroundColor: '#4bc0c0' },
+                        { label: '転入等 (+)', data: ins, backgroundColor: '#36a2eb' },
+                        { label: '死亡 (-)', data: deaths, backgroundColor: '#ff6384' },
+                        { label: '転出等 (-)', data: outs, backgroundColor: '#ff9f40' }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: { stacked: true, title: { display: true, text: '年月' } },
+                        y: { stacked: true, title: { display: true, text: '増減人数（人）' } }
+                    },
+                    plugins: {
+                        tooltip: {
+                            callbacks: {
+                                // ツールチップ内ではマイナス表記をプラスに戻して自然に見せる
+                                label: function(context) {
+                                    let label = context.dataset.label || '';
+                                    let value = context.raw;
+                                    return label.split(' ')[0] + ': ' + Math.abs(value) + ' 人';
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+        } catch (error) {
+            document.getElementById('loading').innerText = 'データの読み込みに失敗しました。スプレッドシートの共有設定（閲覧制限など）を確認してください。';
+            console.error(error);
+        }
+    }
+
+    // ダッシュボード初期化の実行
+    initDashboard();
+</script>
+
 </body>
 </html>
