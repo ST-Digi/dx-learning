@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>志賀町 人口データ可視化</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            padding: 30px;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        .charts-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+        .chart-box {
+            background: #f9f9f9;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+        .chart-box h2 {
+            font-size: 16px;
+            color: #333;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+        .full-width {
+            grid-column: 1 / -1;
+        }
+        .loader {
+            text-align: center;
+            color: #667eea;
+            font-weight: bold;
+        }
+        @media (max-width: 768px) {
+            .charts-grid {
+                grid-template-columns: 1fr;
+            }
+            .chart-box {
+                padding: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>志賀町 人口データ分析</h1>
+        <p class="subtitle">Googleスプレッドシートから自動取得</p>
+        
+        <div class="charts-grid">
+            <div class="chart-box">
+                <h2>性別ごとの人口推移</h2>
+                <canvas id="populationChart"></canvas>
+            </div>
+            <div class="chart-box">
+                <h2>出生・死亡数</h2>
+                <canvas id="birthDeathChart"></canvas>
+            </div>
+            <div class="chart-box full-width">
+                <h2>転入・転出等の推移</h2>
+                <canvas id="migrationChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Google Sheets CSV Export URL
+        const SHEET_ID = '1GvJulWQ__7_FA2FN_-29T0nKynzoExMKx7qnSRlvpDo';
+        const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv`;
+
+        // データ取得とパース
+        async function fetchData() {
+            try {
+                const response = await fetch(CSV_URL);
+                const csv = await response.text();
+                return parseCSV(csv);
+            } catch (error) {
+                console.error('データ取得エラー:', error);
+                return null;
+            }
+        }
+
+        function parseCSV(csv) {
+            const lines = csv.trim().split('\n');
+            const headers = lines[0].split(',');
+            const data = [];
+
+            for (let i = 1; i < lines.length; i++) {
+                const obj = {};
+                const values = lines[i].split(',');
+                headers.forEach((header, index) => {
+                    obj[header.trim()] = values[index]?.trim() || '';
+                });
+                if (obj['年月']) data.push(obj);
+            }
+            return data;
+        }
+
+        function groupByMonth(data) {
+            const monthMap = new Map();
+            
+            data.forEach(row => {
+                const month = row['年月'];
+                if (!monthMap.has(month)) {
+                    monthMap.set(month, { male: {}, female: {} });
+                }
+                const entry = monthMap.get(month);
+                if (row['性別']?.includes('男')) {
+                    entry.male = row;
+                } else if (row['性別']?.includes('女')) {
+                    entry.female = row;
+                }
+            });
+            return monthMap;
+        }
+
+        async function initCharts() {
+            const rawData = await fetchData();
+            if (!rawData || rawData.length === 0) {
+                document.body.innerHTML = '<div class="container"><p class="loader">データの読み込みに失敗しました</p></div>';
+                return;
+            }
+
+            const monthData = groupByMonth(rawData);
+            const months = Array.from(monthData.keys()).sort();
+            
+            // グラフ用データ準備
+            const malePop = [];
+            const femalePop = [];
+            const births = { male: [], female: [] };
+            const deaths = { male: [], female: [] };
+            const inflow = { male: [], female: [] };
+            const outflow = { male: [], female: [] };
+
+            months.forEach(month => {
+                const data = monthData.get(month);
+                malePop.push(parseFloat(data.male['前月末日現在']) || null);
+                femalePop.push(parseFloat(data.female['前月末日現在']) || null);
+                births.male.push(parseFloat(data.male['出生']) || 0);
+                births.female.push(parseFloat(data.female['出生']) || 0);
+                deaths.male.push(parseFloat(data.male['死亡']) || 0);
+                deaths.female.push(parseFloat(data.female['死亡']) || 0);
+                inflow.male.push(parseFloat(data.male['転入等']) || 0);
+                inflow.female.push(parseFloat(data.female['転入等']) || 0);
+                outflow.male.push(parseFloat(data.male['転出等']) || 0);
+                outflow.female.push(parseFloat(data.female['転出等']) || 0);
+            });
+
+            const monthLabels = months.map(m => `${m.substring(0, 4)}年${m.substring(4, 6)}月`);
+
+            // グラフ1: 人口推移
+            const ctx1 = document.getElementById('populationChart').getContext('2d');
+            new Chart(ctx1, {
+                type: 'line',
+                data: {
+                    labels: monthLabels,
+                    datasets: [
+                        {
+                            label: '男性',
+                            data: malePop,
+                            borderColor: '#667eea',
+                            backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                            tension: 0.4,
+                            fill: true
+                        },
+                        {
+                            label: '女性',
+                            data: femalePop,
+                            borderColor: '#f093fb',
+                            backgroundColor: 'rgba(240, 147, 251, 0.1)',
+                            tension: 0.4,
+                            fill: true
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { position: 'top' } },
+                    scales: { y: { beginAtZero: false } }
+                }
+            });
+
+            // グラフ2: 出生・死亡
+            const ctx2 = document.getElementById('birthDeathChart').getContext('2d');
+            new Chart(ctx2, {
+                type: 'bar',
+                data: {
+                    labels: monthLabels,
+                    datasets: [
+                        {
+                            label: '出生（男）',
+                            data: births.male,
+                            backgroundColor: '#667eea'
+                        },
+                        {
+                            label: '出生（女）',
+                            data: births.female,
+                            backgroundColor: '#f093fb'
+                        },
+                        {
+                            label: '死亡（男）',
+                            data: deaths.male.map(v => -v),
+                            backgroundColor: '#4c5fd5'
+                        },
+                        {
+                            label: '死亡（女）',
+                            data: deaths.female.map(v => -v),
+                            backgroundColor: '#d062bc'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { position: 'top' } },
+                    scales: { x: { stacked: false }, y: { stacked: false } }
+                }
+            });
+
+            // グラフ3: 転入・転出
+            const ctx3 = document.getElementById('migrationChart').getContext('2d');
+            new Chart(ctx3, {
+                type: 'bar',
+                data: {
+                    labels: monthLabels,
+                    datasets: [
+                        {
+                            label: '転入等（男）',
+                            data: inflow.male,
+                            backgroundColor: '#52c41a'
+                        },
+                        {
+                            label: '転入等（女）',
+                            data: inflow.female,
+                            backgroundColor: '#95de64'
+                        },
+                        {
+                            label: '転出等（男）',
+                            data: outflow.male.map(v => -v),
+                            backgroundColor: '#ff7a45'
+                        },
+                        {
+                            label: '転出等（女）',
+                            data: outflow.female.map(v => -v),
+                            backgroundColor: '#ffbb96'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { position: 'top' } },
+                    scales: { x: { stacked: false }, y: { stacked: false } }
+                }
+            });
+        }
+
+        // 初期化
+        initCharts();
+    </script>
+</body>
+</html>
